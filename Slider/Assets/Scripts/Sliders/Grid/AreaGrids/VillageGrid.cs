@@ -6,155 +6,312 @@ public class VillageGrid : SGrid
 {
     public static VillageGrid instance;
 
-    private static bool checkCompletion = false;
+    public GameObject caveDoorEntrance;
+    public GameObject caveDoorRocks;
+    public GameObject particleSpawner;
 
-    public Collectible[] collectibles;
+    [Header("Chad Animation stuff")]
+    [SerializeField] private GameObject chad;
+    [SerializeField] private GameObject flashlight;
+    [SerializeField] private AnimationCurve xJumpMotion;
+    [SerializeField] private AnimationCurve yJumpMotion;
+    [SerializeField] private SpriteRenderer chadRenderer;
+    [SerializeField] private SpriteRenderer flashRenderer;
+    [SerializeField] private float jumpDuration;
+    [SerializeField] private GameObject chadPickUpPoint;
+    private Collider2D chadllider;
+    private Transform oldFlashParent;
+    private Vector3 flashlightPadding;
+    private bool chadJumped;
+    private bool chadFell;
+    private bool chadMet;
 
+    private bool fishOn;
 
-    // bad
-    public static bool wasQRCompleted = false;
-    public static bool firstTimeFezziwigCheck = false;
+    [SerializeField] private RuinsSymbols ruinsSymbols;
+    private Coroutine shuffleBuildUpCoroutine;
+    private bool checkCompletion = false;
 
-    private new void Awake() {
+    public override void Init() {
         myArea = Area.Village;
 
-        foreach (Collectible c in collectibles) 
+        foreach (Collectible c in collectibles)
         {
             c.SetArea(myArea);
         }
 
-        base.Awake();
+        base.Init();
 
+        // === Chad Stuff ===
+        chadFell = false;
+        chadMet = false;
+        chadJumped = false;
+        flashlightPadding = Vector3.up * 0.5f;
+        // Finds the non-trigger collider in chad
+        var colliders = chad.GetComponents(typeof(Collider2D));
+        chadllider = ((Collider2D)colliders[0]).isTrigger? (Collider2D)colliders[1] : (Collider2D)colliders[0];
+        // === Chad Stuff ===
+
+        if (fishOn)
+        {
+            particleSpawner.GetComponent<ParticleSpawner>().SetFishOn();
+        }
         instance = this;
+    }
+
+    protected override void Start()
+    {
+        base.Start();
+
+        AudioManager.PlayMusic("Village");
+        UIEffects.FadeFromBlack();
+        
+        if (checkCompletion) {
+            UpdateButtonCompletions(this, null);
+        }
+
+        // Set the flashlight collider to be disabled from the beginning so that the player can't collect it
+        flashlight.GetComponent<Item>().SetCollider(false);
     }
     
     private void OnEnable() {
+        SGridAnimator.OnSTileMoveEnd += CheckChadMoved;
         if (checkCompletion) {
-            SGrid.OnGridMove += SGrid.CheckCompletions;
+            SGrid.OnGridMove += SGrid.UpdateButtonCompletions; // this is probably not needed
+            UIArtifact.OnButtonInteract += SGrid.UpdateButtonCompletions;
+            SGridAnimator.OnSTileMoveEnd += CheckFinalPlacementsOnMove;
         }
-        
-        SGridAnimator.OnSTileMove += CheckQRCodeOnMove;
-        SGridAnimator.OnSTileMove += CheckFinalPlacementsOnMove;
     }
 
     private void OnDisable() {
+        SGridAnimator.OnSTileMoveEnd -= CheckChadMoved;
         if (checkCompletion) {
-            SGrid.OnGridMove -= SGrid.CheckCompletions;
+            SGrid.OnGridMove -= SGrid.UpdateButtonCompletions; // this is probably not needed
+            UIArtifact.OnButtonInteract -= SGrid.UpdateButtonCompletions;
+            SGridAnimator.OnSTileMoveEnd -= CheckFinalPlacementsOnMove;
         }
+    }
+
+    public override void Save() 
+    {
+        base.Save();
+
+        SaveSystem.Current.SetBool("villageCompletion", checkCompletion);
+        SaveSystem.Current.SetBool("villageFishOn", fishOn);
+    }
+
+    public override void Load(SaveProfile profile)
+    {
+        base.Load(profile);
         
-        SGridAnimator.OnSTileMove -= CheckQRCodeOnMove;
-        SGridAnimator.OnSTileMove -= CheckFinalPlacementsOnMove;
-    }
+        checkCompletion = profile.GetBool("villageCompletion");
+        fishOn = profile.GetBool("villageFishOn");
 
-    void Start()
-    {
-        foreach (Collectible c in collectibles) 
-        {
-            if (PlayerInventory.Contains(c)) 
-            {
-                c.gameObject.SetActive(false);
-            }
-        }
-
-        AudioManager.PlayMusic("Connection");
-        UIEffects.FadeFromBlack();
-    }
-
-    public override void SaveGrid() 
-    {
-        base.SaveGrid();
-
-        // GameManager.saveSystem.SaveSGridData(Area.Village, this);
-        // GameManager.saveSystem.SaveMissions(new Dictionary<string, bool>());
-    }
-
-    public override void LoadGrid()
-    {
-        base.LoadGrid();
-    }
-
-    public void ActivateSliderCollectible(int sliderId) { // temporary?
-        collectibles[sliderId - 1].gameObject.SetActive(true);
-
-        if (sliderId == 9)
-        {
-            collectibles[sliderId - 1].transform.position = Player.GetPosition();
-            UIManager.closeUI = true;
-        }
-
-        AudioManager.Play("Puzzle Complete");
+        if (checkCompletion)
+            gridAnimator.ChangeMovementDuration(0.5f);
     }
 
 
     // === Village puzzle specific ===
-
-
-    // Puzzle 5 - R&J 
-    // Checks if Romeo (tile 1) and Juliette (tile 5) are next to each other using Regex
-    public bool CheckLovers()
+    public void CheckFishOn(Conditionals.Condition c)
     {
-        return CheckGrid.row(GetGridString(), "15.") || CheckGrid.row(GetGridString(), ".15");
+        c.SetSpec(fishOn);
     }
 
-    // Puzzle 6 - QR Code
-    // This method is added to SGridAnimator.OnSTileMove above in OnEnable
-    // Don't forget to remove it in OnDisable, or bad things will happen when unloaded!
-    private void CheckQRCodeOnMove(object sender, SGridAnimator.OnTileMoveArgs e)
+    public void TurnFishOn()
     {
-        if (CheckQRCode())
+        if (!fishOn)
         {
-            ActivateSliderCollectible(7);
+            fishOn = true;
+            particleSpawner.GetComponent<ParticleSpawner>().SetFishOn();
         }
     }
-
-    private bool CheckQRCode()
-    {
-        if (wasQRCompleted)
-        {
-            return false;
-        }
-
-        //Debug.Log("Checking qr code");
-        wasQRCompleted = CheckGrid.subgrid(GetGridString(), "3162");
-
-        return wasQRCompleted;
-    }
-
-
-    // Puzzle 7 - River
-    // Checks if the river tiles are in order with Regex (see puzzle doc for the proper order)
-    public bool CheckRiver()
-    {
-        return CheckGrid.contains(GetGridString(), "624_..7_...");
-    }
-
 
     // Puzzle 8 - 8puzzle
     public void ShufflePuzzle() {
+        if (shuffleBuildUpCoroutine == null)
+        {
+            shuffleBuildUpCoroutine = StartCoroutine(ShuffleBuildUp());
+        }
+    }
+
+    private IEnumerator ShuffleBuildUp()
+    {
+        //AudioManager.Play("Puzzle Complete");
+
+        //yield return new WaitForSeconds(0.5f);
+        
+        CameraShake.Shake(0.25f, 0.25f);
+        AudioManager.Play("Slide Rumble");
+        ruinsSymbols.FlashSymbol(0);
+
+        yield return new WaitForSeconds(1f);
+        
+        CameraShake.Shake(0.25f, 0.25f);
+        AudioManager.Play("Slide Rumble");
+        ruinsSymbols.FlashSymbol(1);
+
+        yield return new WaitForSeconds(1f);
+        
+        CameraShake.Shake(0.75f, 0.5f);
+        AudioManager.Play("Slide Rumble");
+        ruinsSymbols.FlashSymbol(2);
+
+        yield return new WaitForSeconds(1f);
+        
+        CameraShake.Shake(1.5f, 2.5f);
+        AudioManager.PlayWithVolume("Slide Explosion", 0.2f);
+        AudioManager.Play("TFT Bell");
+        ruinsSymbols.FlashSymbol(3);
+
+        yield return new WaitForSeconds(0.25f);
+
+        UIEffects.FlashWhite();
+        DoShuffle();
+
+        yield return new WaitForSeconds(0.75f);
+
+        CameraShake.Shake(2, 0.9f);
+    }
+
+    private void DoShuffle()
+    {
         int[,] shuffledPuzzle = new int[3, 3] { { 7, 0, 1 },
                                                 { 6, 4, 8 },
                                                 { 5, 3, 2 } };
         SetGrid(shuffledPuzzle);
 
-        // fading stuff
-        UIEffects.FlashWhite();
+        gridAnimator.ChangeMovementDuration(0.5f);
 
         checkCompletion = true;
-        OnGridMove += CheckCompletions; // SGrid.OnGridMove += SGrid.CheckCompletions
+        SaveSystem.Current.SetBool("forceAutoMove", true);
+        SaveSystem.Current.SetBool("villageCompletion", checkCompletion);
+
+        OnGridMove += UpdateButtonCompletions; // this is probably not needed
+        UIArtifact.OnButtonInteract += SGrid.UpdateButtonCompletions;
+        SGridAnimator.OnSTileMoveEnd += CheckFinalPlacementsOnMove;// SGrid.OnGridMove += SGrid.CheckCompletions
     }
 
 
     private void CheckFinalPlacementsOnMove(object sender, SGridAnimator.OnTileMoveArgs e)
     {
-        if (CheckFinalPlacements())
+        if (!PlayerInventory.Contains("Slider 9", Area.Village) && (GetGridString() == "624_8#7_153"))
         {
-            ActivateSliderCollectible(9);
-            CheckCompletions(this, null); // lazy
+            GivePlayerTheCollectible("Slider 9");
+
+            // Disable queues
+            UIArtifact.ClearQueues();
+
+            // we don't have access to the Collectible.StartCutscene() pick up, so were doing this dumb thing instead
+            StartCoroutine(CheckCompletionsAfterDelay(1.2f));
+
+            AudioManager.Play("Puzzle Complete");
+            SaveSystem.Current.SetBool("forceAutoMove", false);
+            UIArtifactWorldMap.SetAreaStatus(Area.Village, ArtifactWorldMapArea.AreaStatus.color);
         }
     }
 
-    public static bool CheckFinalPlacements()
+    public void Explode()
     {
-        return !PlayerInventory.Contains("Slider 9", Area.Village) && (GetGridString() == "624_8#7_153");
+        caveDoorEntrance.SetActive(true);
+        caveDoorRocks.SetActive(false);
+        SaveSystem.Current.SetBool("caveDoorExploded", true);
+        CameraShake.Shake(1f, 3.5f);
+        AudioManager.Play("Slide Explosion");
+    }
+
+    // Mini-Puzzle - Chad Flashlight
+    public void CheckChadMoved(object sender, SGridAnimator.OnTileMoveArgs e) {
+        if (GetStile(8).isTileActive && e.stile.islandId == 8 && !chadFell && chadMet && chadJumped) {
+            chadFell = true;
+            StartCoroutine(ChadFall());
+        }
+    }
+
+    public void ChadPickUpFlashLight() {
+        if (!chadMet) {
+            chadMet = true;
+        }
+    }
+
+    // So that the dcond can call after dialogue ends
+    public void ChadJumpStarter() {
+        if (!chadJumped) {
+            StartCoroutine(ChadJump());
+        }
+    }
+
+    // Animates Chad Jumping
+    public IEnumerator ChadJump() {
+        var chadform = chad.transform;
+        var chadimator = chadform.GetChild(0).GetComponent<Animator>();
+        var target = new GameObject().transform;
+        target.parent = GetStile(8).transform;
+        target.localPosition = chadform.localPosition + new Vector3(1.5f, 1);
+        chadimator.SetBool("isJumping", true);
+
+        float t = 0;
+
+        Vector3 start = new Vector3(chadform.localPosition.x, chadform.localPosition.y);
+        while (t < jumpDuration)
+        {
+            float x = xJumpMotion.Evaluate(t / jumpDuration);
+            float y = yJumpMotion.Evaluate(t / jumpDuration);
+            Vector3 pos = new Vector3(Mathf.Lerp(start.x, target.transform.localPosition.x, x),
+                                      Mathf.Lerp(start.y, target.transform.localPosition.y, y));
+            
+            chadform.localPosition = pos;
+
+            yield return null;
+            t += Time.deltaTime;
+        }
+
+        //chadform.localPosition = target.localPosition;
+        chadllider.enabled = false;
+
+        chadimator.SetBool("isJumping", false);
+        chadJumped = true;
+        yield return null;
+    }
+
+    // Animates Chad Falling
+    private IEnumerator ChadFall() {
+        var chadform = chad.transform;
+        var chadimator = chadform.GetChild(0).GetComponent<Animator>();
+        var target = new GameObject().transform;
+        target.localPosition = chadform.localPosition + new Vector3(1f, -1);
+        chadimator.SetBool("isTipping", true);
+
+        yield return new WaitForSeconds(0.5f);
+
+        chadimator.SetBool("isFallen", true);
+        AudioManager.Play("Fall");
+        Vector3 startPos = chad.transform.localPosition;
+        Vector3 targetPos = target.transform.localPosition;
+
+        float fallDuration = 0.5f;
+        float t = 0;
+        while (t < fallDuration) {
+            chadform.localPosition = Vector3.Lerp(startPos, targetPos, t / fallDuration);
+
+            yield return null;
+            t += Time.deltaTime;
+        }
+
+        chadimator.SetBool("isTipping", false);
+        AudioManager.Play("Hurt");
+        chadform.localPosition = targetPos;
+
+        flashlight.transform.parent = GetStile(8).transform;
+        flashlight.GetComponent<Item>().DropItem(chad.transform.position + (Vector3.right * 1f), callback: ChadFinishFall);
+    }
+    private void ChadFinishFall() {
+        var flashlight_item = flashlight.GetComponent<Item>();
+        flashlight_item.SetCollider(true);
+        chadllider.enabled = true;
+    }
+
+    public void ChadFell(Conditionals.Condition cond) {
+        cond.SetSpec(chadFell || PlayerInventory.Contains("Flashlight"));
     }
 }

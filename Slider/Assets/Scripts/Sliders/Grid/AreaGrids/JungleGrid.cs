@@ -6,9 +6,9 @@ public class JungleGrid : SGrid
 {
     public static JungleGrid instance;
 
-    public Collectible[] collectibles;
+    public ChadRace chadRace;
 
-    private new void Awake() {
+    public override void Init() {
         myArea = Area.Jungle;
 
         foreach (Collectible c in collectibles) 
@@ -16,33 +16,72 @@ public class JungleGrid : SGrid
             c.SetArea(myArea);
         }
 
-        base.Awake();
+        base.Init();
 
         instance = this;
     }
     
 
-    void Start()
+    protected override void Start()
     {
-        foreach (Collectible c in collectibles) 
-        {
-            if (PlayerInventory.Contains(c)) 
-            {
-                c.gameObject.SetActive(false);
-            }
-        }
-        
-        AudioManager.PlayMusic("Connection");
+        base.Start();
+
+        AudioManager.PlayMusic("Jungle");
         UIEffects.FadeFromBlack();
     }
 
-    public override void SaveGrid() 
-    {
-        base.SaveGrid();
+    private void OnEnable() {
+        SGrid.OnGridMove += CheckChad;
     }
 
-    public override void LoadGrid()
+    private void OnDisable() {
+        SGrid.OnGridMove -= CheckChad;
+    }
+
+    public override void Save() 
     {
-        base.LoadGrid();
+        base.Save();
+    }
+
+    public override void Load(SaveProfile profile)
+    {
+        base.Load(profile);
+    }
+
+    public override void EnableStile(STile stile, bool shouldFlicker=true)
+    {
+        base.EnableStile(stile, shouldFlicker);
+        CheckChad(this, null);
+    }
+
+    // === Jungle Puzzle Specific ===
+    
+    // Puzzle 5 - Chad Race
+    public void CheckChad(object sender, SGrid.OnGridMoveArgs e) {
+        if (current.GetGrid() != null)
+            chadRace.tilesAdjacent = CheckGrid.row(GetGridString(), "523") && GetStile(5).isTileActive && GetStile(2).isTileActive && GetStile(3).isTileActive;
+    }
+    
+    public void OnRaceWon() {
+        AudioManager.Play("Puzzle Complete");
+    }
+
+    public void SpawnChadRewards() {
+        Collectible c = GetCollectible("Boots");
+        if (!PlayerInventory.Contains(c))
+        {
+            c.gameObject.SetActive(true);
+        }
+
+        c = GetCollectible("Slider 6");
+            
+        if (!PlayerInventory.Contains(c))
+        {
+            c.gameObject.SetActive(true);
+        }
+    }
+
+    public void PlayerCollectedRaceRewards(Conditionals.Condition c) {
+        c.SetSpec(PlayerInventory.Contains(GetCollectible("Boots")));
     }
 }

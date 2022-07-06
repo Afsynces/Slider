@@ -4,7 +4,7 @@ using UnityEngine;
 
 public class PlayerInventory : MonoBehaviour
 {
-    public class InventoryEvent {
+    public class InventoryEvent : System.EventArgs {
         public Collectible collectible;
     }
     
@@ -12,17 +12,73 @@ public class PlayerInventory : MonoBehaviour
 
     private static PlayerInventory instance;
 
-    private static List<Collectible.CollectibleData> collectibles = new List<Collectible.CollectibleData>(); // separate Sliders + items?
+    private static List<Collectible.CollectibleData> collectibles = new List<Collectible.CollectibleData>();
+
     private static List<Item> equipables = new List<Item>();
     private static IEnumerator<Item> itemIterator = equipables.GetEnumerator();
     private static Item currentItem = null;
-    
-    private void Awake() {
-        if (instance == null) {
+
+    private static bool hasCollectedAnchor = false;
+    [SerializeField] private GameObject anchorPrefab;
+
+    public static PlayerInventory Instance
+    {
+        get => instance;
+    }
+
+    private void Awake()
+    {
+        Init();
+    }
+
+    // Called by Player.Init() too
+    public void Init()
+    {
+        if (instance == null)
+        {
             instance = this;
+        }
+
+        equipables.Clear();
+        itemIterator = equipables.GetEnumerator();
+        currentItem = null;
+        // populate inventory on scene start
+        if (hasCollectedAnchor)
+        {
+            GameObject anchor = Instantiate(anchorPrefab, transform.position, Quaternion.identity, transform);
+            anchor.SetActive(false);
+            equipables.Add(anchor.GetComponent<Item>());
+            anchor.GetComponent<Item>().SetCollider(false);
         }
     }
 
+    public void Reset()
+    {
+        collectibles.Clear();
+        equipables.Clear();
+        itemIterator = equipables.GetEnumerator();
+        currentItem = null;
+    }
+
+    public void SetCollectiblesList(List<Collectible.CollectibleData> value)
+    {
+        collectibles = value;
+    }
+
+    public List<Collectible.CollectibleData> GetCollectiblesList()
+    {
+        return collectibles;
+    }
+
+    public void SetHasCollectedAnchor(bool value)
+    {
+        hasCollectedAnchor = value;
+    }
+
+    public bool GetHasCollectedAnchor()
+    {
+        return hasCollectedAnchor;
+    }
 
     public static void AddCollectible(Collectible collectible) {
         // Debug.Log("Adding " + collectible.GetArea() + " " + collectible.GetName());
@@ -57,8 +113,8 @@ public class PlayerInventory : MonoBehaviour
             itemIterator = equipables.GetEnumerator();
         }
         bool res = itemIterator.MoveNext();
-        Debug.Log(currentItem);
-        Debug.Log(equipables);
+        // Debug.Log(currentItem);
+        // Debug.Log(equipables);
         if (res)
         {
             currentItem = itemIterator.Current;

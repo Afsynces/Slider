@@ -9,7 +9,9 @@ public class STileTilemap : MonoBehaviour
     public Tilemap walls;
     public Tilemap decoration;
     public Tilemap colliders;
+    public Tilemap minecartRails;
 
+    public Tile wallTile;
 
     public void ClearColliders()
     {
@@ -25,7 +27,13 @@ public class STileTilemap : MonoBehaviour
             {
                 Vector3Int pos = new Vector3Int(x, y, 0);
 
-                colliders.SetTile(pos, walls.GetTile(pos));
+                if (walls.GetTile(pos) != null)
+                {
+                    if (wallTile != null)
+                        colliders.SetTile(pos, wallTile);
+                    else
+                        colliders.SetTile(pos, walls.GetTile(pos));
+                }
             }
         }
     }

@@ -28,30 +28,65 @@ public class SceneSpawns : MonoBehaviour
         JungleWestBridge,
         JungleNorthBridge,
         JungleEast,
+        JungleMinecartWest,
+        JungleMinecartEast,
 
         // Desert
+        DesertBridge,
+        DesertLava, // not going to be implemented?
+        DesertPortal,
 
-        // don't forget FactoryMinecart
-
-        // Mountain
+        // Factory
+        FactoryWest,
+        FactoryMinecartWest,
+        FactorySouth,
+        FactoryNorth,
 
         // Military
+        MilitaryNorth,
+        MiliaryEast,
+
+        // Mountain
+        MountainSouth,
+        MountainSouthMinecart,
+        MountainLava, // not going to be implemented?
 
         // MagiTech
+        MagiTechSouth,
+        MagiTechDesertPortal,
+        MagiTechRocket,
 
         // Space
     }
 
     public static SpawnLocation nextSpawn;
+    public static Vector3 relativePos;
 
     [SerializeField] private SpawnLocation spawnName;
     [SerializeField] private bool spawnInBoat;
+    [SerializeField] private WaterLandColliderManager wlcManager;
 
-    void Start()
+
+
+    void Awake()
     {
         if (nextSpawn == spawnName && nextSpawn != SpawnLocation.Default) 
         {
-            Player.SetPosition(transform.position);
+            Vector3 pos = transform.position + relativePos;
+            // Debug.Log("relative pos:" + relativePos);
+            relativePos = Vector3.zero;
+            GameObject.Find("Player").transform.position = pos;
+
+            if (spawnInBoat)
+            {
+                wlcManager.SetOnWater(true);
+            }
+            else
+            {
+                wlcManager?.SetOnWater(false);
+            }
+
+            nextSpawn = SpawnLocation.Default;
         }
     }
 }

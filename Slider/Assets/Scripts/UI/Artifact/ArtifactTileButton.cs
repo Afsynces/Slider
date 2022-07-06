@@ -6,22 +6,23 @@ using UnityEngine.UI;
 
 public class ArtifactTileButton : MonoBehaviour
 {
-    public static bool canComplete = false;
+    // public static bool canComplete = false;
     public bool isComplete = false;
-    public bool isForcedDown = false;
+    // public bool isInMove = false;
 
     public bool isTileActive = false;
     public int islandId = -1;
     public int x;
     public int y;
 
-    public bool flickerNext = false;
-    private bool startsActive;
+    public bool shouldFlicker = false;
 
     private const int UI_OFFSET = 37;
 
-    private STile myStile;
-    private Sprite islandSprite;
+    public STile myStile { get; private set; }
+    public ArtifactTileButton linkButton;
+
+    protected Sprite islandSprite;
     public Sprite completedSprite;
     public Sprite emptySprite;
     public Sprite hoverSprite;
@@ -29,42 +30,77 @@ public class ArtifactTileButton : MonoBehaviour
     public ArtifactTileButtonAnimator buttonAnimator;
     public UIArtifact buttonManager;
 
-    private void Start()
+    [SerializeField]
+    private ConveyorUIData conveyorData;
+
+    private Conveyor[] conveyors;
+
+    protected void Awake() 
     {
         islandSprite = buttonAnimator.sliderImage.sprite;
+        conveyors = FindObjectsOfType<Conveyor>();
+    }
 
+    protected virtual void Start()
+    {
         myStile = SGrid.current.GetStile(islandId); // happens in SGrid.Awake()
-        startsActive = myStile.isTileActive;
+        
         SetTileActive(myStile.isTileActive);
         SetPosition(myStile.x, myStile.y);
 
-        //if (!isTileActive)
-        //{
-        //    buttonAnimator.sliderImage.sprite = emptySprite;
-        //}
+        linkButton = null;
+        foreach (ArtifactTileButton b in buttonManager.buttons) {
+            if (myStile.linkTile != null && myStile.linkTile == b.myStile)
+            {
+                linkButton = b;
+                b.linkButton = this;
+            }
+        }
+
+        // if (!isTileActive)
+        // {
+        //    //buttonAnimator.sliderImage.sprite = emptySprite;
+        // }
         // update artifact button
+    }
+
+    private void OnEnable()
+    {
+        foreach (Conveyor conveyor in conveyors)
+        {
+            conveyor.OnPowered.AddListener(OnConveyorPowered);
+        }
+
+        UpdateEmptySprite();
     }
 
     public void OnDisable()
     {
-        if (myStile.isTileActive)
+        if (myStile != null && myStile.isTileActive)
         {
             if (buttonAnimator.sliderImage.sprite == emptySprite || buttonAnimator.sliderImage.sprite == blankSprite)
             {
                 ResetToIslandSprite();
             }
         }
+
+        foreach (Conveyor conveyor in conveyors)
+        {
+            conveyor.OnPowered.RemoveListener(OnConveyorPowered);
+        }
     }
 
-    public void SetPosition(int x, int y)
+    public virtual void SetPosition(int x, int y)
     {
         //Debug.Log("Current position: " + this.x + "," + this.y);
-        this.x = x;
+        this.x = x; 
         this.y = y;
         //Debug.Log("New position: " + this.x + "," + this.y);
 
-        Vector3 pos = new Vector3(x - 1, y - 1) * UI_OFFSET;
+        Vector3 pos = new Vector3((x % SGrid.current.height) - 1, y - 1) * UI_OFFSET; //C: i refuse to make everything into MT buttons
         GetComponent<RectTransform>().anchoredPosition = pos;
+
+        UpdateEmptySprite();
     }
 
     public void SelectButton()
@@ -87,27 +123,41 @@ public class ArtifactTileButton : MonoBehaviour
         buttonAnimator.SetPushedDown(v);
     }
 
+    public void SetLightning(bool v)
+    {
+        buttonAnimator.SetLightning(v);
+    }
+
+    public void FragLightningPreview(bool v)
+    {
+        buttonAnimator.FragLightningPreview(v);
+    }
     public void SetSelected(bool v)
     {
         buttonAnimator.SetSelected(v);
     }
 
-    public void SetForcedPushedDown(bool v)
+    public void SetIsInMove(bool v)
     {
-        buttonAnimator.SetForcedPushedDown(v);
-        isForcedDown = v;
+        buttonAnimator.SetIsForcedDown(v && isTileActive);
+    }
+
+    public void SetShouldFlicker(bool shouldFlicker)
+    {
+        this.shouldFlicker = shouldFlicker;
     }
 
     public void SetTileActive(bool v)
     {
+        if (islandSprite == null)
+        {
+            islandSprite = buttonAnimator.sliderImage.sprite;
+        }
+
         isTileActive = v;
         if (v)
         {
-            if (!startsActive)
-            {
-                flickerNext = true;
-            }
-            buttonAnimator.sliderImage.sprite = islandSprite;
+            buttonAnimator.sliderImage.sprite = isComplete ? completedSprite : islandSprite;
         }
         else
         {
@@ -117,16 +167,20 @@ public class ArtifactTileButton : MonoBehaviour
 
     public void SetComplete(bool value)
     {
-        if (!canComplete || !isTileActive)
+        if (!isTileActive)
             return;
 
         isComplete = value;
         ResetToIslandSprite();
     }
 
-    private void ResetToIslandSprite()
+    public virtual void ResetToIslandSprite()
     {
-        if (isComplete)
+        if (!isTileActive)
+        {
+            buttonAnimator.sliderImage.sprite = emptySprite;
+        }
+        else if (isComplete)
         {
             buttonAnimator.sliderImage.sprite = completedSprite;
         }
@@ -136,20 +190,83 @@ public class ArtifactTileButton : MonoBehaviour
         }
     }
 
-    public void Flicker() {
-        flickerNext = false;
-        StartCoroutine(NewButtonFlicker());
+    public void Flicker(int numFlickers) 
+    {
+        shouldFlicker = false;
+        StartCoroutine(NewButtonFlicker(numFlickers));
     }
 
-    private IEnumerator NewButtonFlicker() {
-        ResetToIslandSprite();
-        yield return new WaitForSeconds(.25f);
-        for (int i = 0; i < 3; i++) 
+    public void FlickerImmediate(int numFlickers)
+    {
+        shouldFlicker = false;
+        StartCoroutine(NewButtonFlicker(numFlickers, true));
+    }
+
+    private IEnumerator NewButtonFlicker(int numFlickers, bool blankImmediately=false) {
+        if (!blankImmediately)
         {
+            ResetToIslandSprite();
             yield return new WaitForSeconds(.25f);
+        }
+        
+        for (int i = 0; i < numFlickers; i++) 
+        {
             buttonAnimator.sliderImage.sprite = blankSprite;
             yield return new WaitForSeconds(.25f);
             ResetToIslandSprite();
+            yield return new WaitForSeconds(.25f);
         }
     }
+
+    public void AfterStileMoveDragged(object sender, SGridAnimator.OnTileMoveArgs e) 
+    {
+        if (e.stile.islandId == islandId)
+            SetPushedDown(false);
+    }
+
+    //L: i refuse to make everything into Factory buttons
+    #region Conveyor BS
+    private void OnConveyorPowered(ElectricalNode.OnPoweredArgs e)
+    {
+        UpdateEmptySprite();
+    }
+
+    private void UpdateEmptySprite()
+    {
+        if (conveyorData != null)
+        {
+            if (!isTileActive)
+            {
+                Conveyor conveyor = ConveyorAt(x, y);
+                if (conveyor != null)
+                {
+                    foreach (var item in conveyorData.conveyors)
+                    {
+                        if (item.pos.Equals(conveyor.StartPos))
+                        {
+                            buttonAnimator.sliderImage.sprite = conveyor.Powered ? item.emptyPowered : item.emptyUnpowered;
+                        }
+                    }
+                }
+                else
+                {
+                    buttonAnimator.sliderImage.sprite = emptySprite;
+                }
+            }
+        }
+    }
+
+    private Conveyor ConveyorAt(int x, int y)
+    {
+        foreach (Conveyor conveyor in conveyors)
+        {
+            if (conveyor.StartPos.Equals(new Vector2Int(x, y)))
+            {
+                return conveyor;
+            }
+        }
+
+        return null;
+    }
+    #endregion
 }

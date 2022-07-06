@@ -9,17 +9,28 @@ public class KnotBox : MonoBehaviour
     public Color bad, good;
     public LineRenderer[] lines;
 
-    private static KnotBox _instance;
-    void Awake()
-    {
-        _instance = this;
-    }
+    public ParticleSystem[] particles;
+
     // Update is called once per frame
     void Update()
     {
         MakeLines();
         CheckLines();
     }
+
+    // animation is jittery when moving tiles
+    // https://answers.unity.com/questions/1387219/linerenderer-lags-behind-object-positions.html
+    private void LateUpdate() 
+    {
+        MakeLines();
+        CheckLines();
+    }
+
+    private void OnDisable()
+    {
+        RemoveLines();
+    }
+
 
     private void MakeLines()
     {
@@ -32,30 +43,63 @@ public class KnotBox : MonoBehaviour
                 lines[i].SetPosition(1, knotnodes[0].transform.position);
         }
     }
-    public bool CheckLines()
+
+    public void RemoveLines()
     {
-        bool ret = true;
+        for (int i = 0; i < knotnodes.Length; i++)
+        {
+            lines[i].SetPosition(0, Vector3.zero);
+            lines[i].SetPosition(1, Vector3.zero);
+        }
+    }
+
+
+    // update + return number of intersects
+    public int CheckLines()
+    {
+        int ret = 0;
         for (int i = 0; i < lines.Length; i++)
         {
             bool intersects = false;
-            for(int j = 0; j < i; j++)
-            {
-                if (IntersectingSegs(lines[i], lines[j]))
-                {
+            Vector2 a = lines[i].GetPosition(0); 
+            Vector2 b = lines[i].GetPosition(1);
+            Vector2 dir = b - a;
+            int next = i+1;
+            if(i == lines.Length-1){
+                next = 0;
+            } 
+            //RaycastHit2D hit = Physics2D.Raycast(a + 0.43f*dir.normalized,dir,(dir.magnitude-0.877f), 2048);
+            RaycastHit2D[] hits = Physics2D.RaycastAll(a,dir,dir.magnitude, 4096);
+            foreach(RaycastHit2D hit in hits){
+                if(!(GameObject.ReferenceEquals(knotnodes[i], hit.collider.gameObject) || GameObject.ReferenceEquals(knotnodes[next], hit.collider.gameObject))){
                     lines[i].startColor = bad;
                     lines[i].endColor = bad;
                     intersects = true;
-                    ret = false;
+                    ret += 1;
                 }
             }
-            for (int j = i + 1; j < lines.Length; j++)
+            for(int j = i-2; j >= 0; j--)
             {
+                if(j == 0 && i == lines.Length-1)
+                    break;
                 if (IntersectingSegs(lines[i], lines[j]))
                 {
                     lines[i].startColor = bad;
                     lines[i].endColor = bad;
                     intersects = true;
-                    ret = false;
+                    ret += 1;
+                }
+            }
+            for (int j = i + 2; j < lines.Length; j++)
+            {
+                if(j == lines.Length-1 && i == 0)
+                    break;
+                if (IntersectingSegs(lines[i], lines[j]))
+                {
+                    lines[i].startColor = bad;
+                    lines[i].endColor = bad;
+                    intersects = true;
+                    ret += 1;
                 }
             }
             if (!intersects)
@@ -66,26 +110,62 @@ public class KnotBox : MonoBehaviour
         }
         return ret;
     }
-
+    public static bool Approximately(float a, float b, float tolerance = 1e-5f) {
+        return Mathf.Abs(a - b) <= tolerance;
+    }
+    private float CrossProduct2D(Vector2 a, Vector2 b){
+        return a.x * b.y - a.y * b.x;
+    }
     private bool IntersectingSegs(LineRenderer line1, LineRenderer line2)
     {
         // Haha segs
-        Vector2 sp1 = line1.GetPosition(0); //p0
-        Vector2 ep1 = line1.GetPosition(1); //p1
-        Vector2 sp2 = line2.GetPosition(0); //p2
-        Vector2 ep2 = line2.GetPosition(1); //p3
-
-        Vector2 e = ep1 - sp1;
-        Vector2 f = ep2 - sp2;
-        Vector2 p = new Vector2(-e.y, e.x);
-        float h = Vector2.Dot(sp1 - sp2, p) / Vector2.Dot(f, p);
-
-        if (h > 0 && h < 1)
+        Vector2 a = line1.GetPosition(0); // line segments a->b and c->d
+        Vector2 b = line1.GetPosition(1);
+        Vector2 c = line2.GetPosition(0);
+        Vector2 d = line2.GetPosition(1);
+        
+        //orientations of point to points on other line segment
+        float oa = CrossProduct2D(d-a,c-a);
+        float ob = CrossProduct2D(d-b,c-b);
+        float oc = CrossProduct2D(b-c,a-c);
+        float od = CrossProduct2D(b-d,a-d);
+        if(Mathf.Sign(oa) + Mathf.Sign(ob) == 0 && Mathf.Sign(oc) + Mathf.Sign(od) == 0) {
             return true;
+        }
         return false;
     }
-    public static bool PuzzleComplete()
+
+    public void CheckParticles()
     {
-        return _instance.CheckLines();
+        Debug.Log("Checking particles");
+        if (CheckLines() == 0 && particles != null)
+        {
+            foreach (ParticleSystem ps in particles)
+            {
+                ps.Play();
+            }
+        }
+    }
+
+    public void CheckPuzzle(Conditionals.Condition c)
+    {
+        c.SetSpec(CheckLines() == 0);
+    }
+
+    public void CheckPuzzlePartial(Conditionals.Condition c)
+    {
+        c.SetSpec(CheckLines() <= 3);
+    }
+
+    private void OnDrawGizmos()
+    {
+        Gizmos.color = Color.blue;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (i < knotnodes.Length - 1)
+                Gizmos.DrawLine(knotnodes[i].transform.position, knotnodes[i + 1].transform.position);
+            else
+                Gizmos.DrawLine(knotnodes[i].transform.position, knotnodes[0].transform.position);
+        }
     }
 }

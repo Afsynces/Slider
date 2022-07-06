@@ -77,13 +77,15 @@ public class Collectible : MonoBehaviour
 
 
     // common methods for onCollect
-
     public void ActivateSTile(int stileId) 
     {
-        if (FindObjectOfType<NPCManager>() != null) {
-            FindObjectOfType<NPCManager>().ChangeWorldState();
-        }
-        SGrid.current.EnableStile(stileId);
+        SGrid.current.CollectSTile(stileId);
+    }
+
+
+    public SpriteRenderer getSpriteRenderer()
+    {
+        return spriteRenderer;
     }
 
 }
